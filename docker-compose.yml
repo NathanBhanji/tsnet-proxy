@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  tsnet-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tsnet-proxy
+    environment:
+      # REQUIRED: Set your Tailscale auth key
+      # Get one from: https://login.tailscale.com/admin/settings/keys
+      - TS_AUTHKEY=${TS_AUTHKEY}
+    volumes:
+      # Mount config file - writable so UI can update it
+      - ./configs/services.yaml:/app/configs/services.yaml:rw
+      # Persist Tailscale state across restarts
+      - tsnet-data:/data/tsnet
+    # Connect to the services network to access other containers
+    networks:
+      - services
+    restart: unless-stopped
+
+  # Example backend service: Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      - GF_SERVER_ROOT_URL=https://grafana.your-tailnet.ts.net
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - services
+    # Don't expose ports externally - only accessible via tsnet-proxy
+    # ports:
+    #   - "3000:3000"
+
+  # Example backend service: Nginx
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: nginx
+  #   volumes:
+  #     - ./html:/usr/share/nginx/html:ro
+  #   networks:
+  #     - services
+
+  # Example backend service: Postgres
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: postgres
+  #   environment:
+  #     - POSTGRES_PASSWORD=secret
+  #     - POSTGRES_DB=mydb
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #   networks:
+  #     - services
+
+networks:
+  services:
+    driver: bridge
+
+volumes:
+  tsnet-data:
+  grafana-data:
+  # postgres-data:

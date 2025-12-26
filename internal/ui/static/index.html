@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>tsnet-proxy Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+    <div class="container mx-auto px-4 py-8 max-w-7xl">
+        <header class="text-center mb-12 pb-8 border-b-2 border-gray-200">
+            <h1 class="text-4xl font-bold mb-2">🚀 tsnet-proxy</h1>
+            <p class="text-gray-600 text-lg">Tailscale Multi-Service Reverse Proxy</p>
+        </header>
+
+        <main>
+            <section class="flex flex-col sm:flex-row gap-3 mb-8">
+                <button id="add-service-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-medium transition-all hover:shadow-lg">
+                    + Add Service
+                </button>
+                <button id="refresh-btn" class="bg-white hover:bg-gray-50 border border-gray-300 px-6 py-3 rounded-lg font-medium transition-all hover:shadow-lg">
+                    🔄 Refresh
+                </button>
+            </section>
+
+            <section id="services-list" class="space-y-6">
+                <div class="text-center py-12 text-gray-500">Loading services...</div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Add Service Modal -->
+    <div id="add-service-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 overflow-y-auto">
+        <div class="flex min-h-screen items-center justify-center p-4">
+            <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center p-6 border-b border-gray-200">
+                    <h2 class="text-2xl font-bold">Add New Service</h2>
+                    <button class="close text-gray-400 hover:text-gray-600 text-3xl leading-none">&times;</button>
+                </div>
+
+                <form id="add-service-form" class="p-6">
+                    <div class="mb-6">
+                        <label for="service-name" class="block text-sm font-medium text-gray-700 mb-2">Service Name *</label>
+                        <input type="text" id="service-name" name="name" required
+                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                               placeholder="e.g., grafana" pattern="[a-z0-9-]+"
+                               title="Lowercase letters, numbers, and hyphens only">
+                        <p class="mt-1 text-sm text-gray-500">This will be the Tailscale hostname (e.g., grafana.your-tailnet.ts.net)</p>
+                    </div>
+
+                    <div class="mb-6">
+                        <label for="service-backend" class="block text-sm font-medium text-gray-700 mb-2">Backend URL *</label>
+                        <input type="url" id="service-backend" name="backend" required
+                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                               placeholder="http://grafana:3000">
+                        <p class="mt-1 text-sm text-gray-500">Docker service name or IP address</p>
+                    </div>
+
+                    <div class="mb-6">
+                        <label for="service-paths" class="block text-sm font-medium text-gray-700 mb-2">Path Prefixes (optional)</label>
+                        <input type="text" id="service-paths" name="paths"
+                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                               placeholder="/api, /grafana">
+                        <p class="mt-1 text-sm text-gray-500">Comma-separated paths. Leave empty to proxy all paths.</p>
+                    </div>
+
+                    <div class="mb-6">
+                        <label class="flex items-center">
+                            <input type="checkbox" id="service-strip-prefix" name="stripPrefix"
+                                   class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
+                            <span class="ml-2 text-sm font-medium text-gray-700">Strip path prefix before forwarding</span>
+                        </label>
+                    </div>
+
+                    <div class="border-t border-gray-200 pt-6 mt-6">
+                        <h3 class="text-lg font-semibold mb-4">Health Check</h3>
+                        <div class="mb-4">
+                            <label class="flex items-center">
+                                <input type="checkbox" id="health-enabled" name="healthCheckEnabled" checked
+                                       class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
+                                <span class="ml-2 text-sm font-medium text-gray-700">Enable health checks</span>
+                            </label>
+                        </div>
+
+                        <div id="health-check-options" class="space-y-4">
+                            <div>
+                                <label for="health-path" class="block text-sm font-medium text-gray-700 mb-2">Health Check Path *</label>
+                                <input type="text" id="health-path" name="healthCheckPath"
+                                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                       value="/health" placeholder="/health">
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div>
+                                    <label for="health-interval" class="block text-sm font-medium text-gray-700 mb-2">Interval</label>
+                                    <input type="text" id="health-interval" name="healthCheckInterval"
+                                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                           value="30s" placeholder="30s">
+                                </div>
+
+                                <div>
+                                    <label for="health-timeout" class="block text-sm font-medium text-gray-700 mb-2">Timeout</label>
+                                    <input type="text" id="health-timeout" name="healthCheckTimeout"
+                                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                           value="5s" placeholder="5s">
+                                </div>
+
+                                <div>
+                                    <label for="health-threshold" class="block text-sm font-medium text-gray-700 mb-2">Failure Threshold</label>
+                                    <input type="number" id="health-threshold" name="healthCheckThreshold"
+                                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                           value="3" min="1" max="10">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="border-t border-gray-200 pt-6 mt-6">
+                        <h3 class="text-lg font-semibold mb-4">TLS/HTTPS Backend</h3>
+                        <div class="mb-4">
+                            <label class="flex items-center">
+                                <input type="checkbox" id="tls-enabled" name="tlsEnabled"
+                                       class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
+                                <span class="ml-2 text-sm font-medium text-gray-700">Backend uses HTTPS</span>
+                            </label>
+                        </div>
+
+                        <div id="tls-options" class="hidden">
+                            <label class="flex items-center">
+                                <input type="checkbox" id="tls-skip-verify" name="tlsSkipVerify"
+                                       class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
+                                <span class="ml-2 text-sm font-medium text-gray-700">Skip TLS certificate verification (insecure)</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end gap-3 pt-6 mt-6 border-t border-gray-200">
+                        <button type="button" id="cancel-btn" class="px-6 py-2 border border-gray-300 rounded-lg font-medium hover:bg-gray-50 transition">
+                            Cancel
+                        </button>
+                        <button type="submit" class="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition">
+                            Add Service
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>

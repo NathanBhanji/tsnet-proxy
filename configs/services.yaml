@@ -1,0 +1,21 @@
+# Tailscale tsnet Proxy Configuration
+# Add services via the web UI or edit this file directly
+
+services: []
+
+# Auth key from environment variable
+authKey: "${TS_AUTHKEY}"
+
+# State directory for tsnet persistence
+stateDir: "/data/tsnet"
+
+# Management UI
+managementUI:
+  enabled: true
+  hostname: "tsnet-proxy-docker"
+  port: 8080
+
+# Prometheus metrics
+metrics:
+  enabled: true
+  port: 9090
