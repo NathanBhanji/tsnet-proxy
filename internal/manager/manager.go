@@ -31,8 +31,7 @@ type Manager struct {
 func NewManager(authKey, stateDir, apiKey, tailnet string) *Manager {
 	var apiClient *tailscale.Client
 	if apiKey != "" && tailnet != "" {
-		apiClient = tailscale.NewClient(tailnet, nil)
-		apiClient.APIKey = apiKey
+		apiClient = tailscale.NewClient(tailnet, tailscale.APIKey(apiKey))
 	}
 
 	return &Manager{
@@ -268,7 +267,7 @@ func (m *Manager) deleteDevice(ts *tsnet.Server, name string) {
 		return
 	}
 
-	deviceID := fmt.Sprintf("%d", status.Self.ID)
+	deviceID := string(status.Self.ID)
 	log.Printf("Deleting device %s (ID: %s) from Tailscale...", name, deviceID)
 
 	err = m.apiClient.DeleteDevice(context.Background(), deviceID)

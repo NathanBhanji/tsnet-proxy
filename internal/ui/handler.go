@@ -35,8 +35,7 @@ type UIServer struct {
 func NewUIServer(cfg *config.Config, configPath string, mgr *manager.Manager, checker *health.Checker, authKey, stateDir string) *UIServer {
 	var apiClient *tailscale.Client
 	if cfg.APIKey != "" && cfg.Tailnet != "" {
-		apiClient = tailscale.NewClient(cfg.Tailnet, nil)
-		apiClient.APIKey = cfg.APIKey
+		apiClient = tailscale.NewClient(cfg.Tailnet, tailscale.APIKey(cfg.APIKey))
 	}
 
 	return &UIServer{
@@ -169,7 +168,7 @@ func (s *UIServer) deleteDevice() {
 		return
 	}
 
-	deviceID := fmt.Sprintf("%d", status.Self.ID)
+	deviceID := string(status.Self.ID)
 	log.Printf("Deleting UI device %s (ID: %s) from Tailscale...", s.config.ManagementUI.Hostname, deviceID)
 
 	err = s.apiClient.DeleteDevice(context.Background(), deviceID)
