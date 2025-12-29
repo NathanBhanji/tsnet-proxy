@@ -240,7 +240,7 @@ Import the included Grafana dashboard (coming soon) or create custom panels:
 version: '3.8'
 services:
   tsnet-proxy:
-    image: nathanbhanji/tsnet-proxy:latest
+    image: bhanji/tsnet-proxy:latest
     environment:
       - TS_AUTHKEY=${TS_AUTHKEY}
     volumes:
