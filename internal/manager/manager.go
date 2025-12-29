@@ -137,8 +137,9 @@ func (m *Manager) RemoveService(name string) error {
 
 	log.Printf("Removing service: %s", name)
 
-	// Close the tsnet server
+	// Delete device from Tailscale and close the tsnet server
 	if svc.tsnetServer != nil {
+		m.deleteDevice(svc.tsnetServer, name)
 		if err := svc.tsnetServer.Close(); err != nil {
 			log.Printf("Error closing tsnet server for %s: %v", name, err)
 		}
@@ -221,9 +222,39 @@ func (m *Manager) Shutdown() {
 	for name, svc := range m.services {
 		log.Printf("Stopping service: %s", name)
 		if svc.tsnetServer != nil {
+			// Delete device from Tailscale before closing
+			m.deleteDevice(svc.tsnetServer, name)
 			svc.tsnetServer.Close()
 		}
 	}
 	m.services = make(map[string]*Service)
 	log.Printf("All services stopped")
+}
+
+// deleteDevice removes the device from Tailscale control plane
+func (m *Manager) deleteDevice(ts *tsnet.Server, name string) {
+	lc, err := ts.LocalClient()
+	if err != nil {
+		log.Printf("Failed to get LocalClient for %s: %v", name, err)
+		return
+	}
+
+	status, err := lc.Status(nil)
+	if err != nil {
+		log.Printf("Failed to get status for %s: %v", name, err)
+		return
+	}
+
+	if status.Self == nil {
+		log.Printf("No self node found for %s", name)
+		return
+	}
+
+	log.Printf("Deleting device %s (ID: %d) from Tailscale...", name, status.Self.ID)
+	err = lc.DeleteDevice(nil, status.Self.ID)
+	if err != nil {
+		log.Printf("Failed to delete device %s: %v", name, err)
+	} else {
+		log.Printf("Successfully deleted device %s from Tailscale", name)
+	}
 }

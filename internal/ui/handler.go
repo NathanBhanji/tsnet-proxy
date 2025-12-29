@@ -128,6 +128,35 @@ func (s *UIServer) Start() error {
 func (s *UIServer) Stop() {
 	if s.tsnetServer != nil {
 		log.Printf("Stopping management UI server...")
+		s.deleteDevice()
 		s.tsnetServer.Close()
+	}
+}
+
+// deleteDevice removes the UI device from Tailscale control plane
+func (s *UIServer) deleteDevice() {
+	lc, err := s.tsnetServer.LocalClient()
+	if err != nil {
+		log.Printf("Failed to get LocalClient for UI server: %v", err)
+		return
+	}
+
+	status, err := lc.Status(nil)
+	if err != nil {
+		log.Printf("Failed to get status for UI server: %v", err)
+		return
+	}
+
+	if status.Self == nil {
+		log.Printf("No self node found for UI server")
+		return
+	}
+
+	log.Printf("Deleting UI device %s (ID: %d) from Tailscale...", s.config.ManagementUI.Hostname, status.Self.ID)
+	err = lc.DeleteDevice(nil, status.Self.ID)
+	if err != nil {
+		log.Printf("Failed to delete UI device: %v", err)
+	} else {
+		log.Printf("Successfully deleted UI device from Tailscale")
 	}
 }
