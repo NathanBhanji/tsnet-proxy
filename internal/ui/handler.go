@@ -12,6 +12,7 @@ import (
 	"github.com/NathanBhanji/tsnet-proxy/internal/config"
 	"github.com/NathanBhanji/tsnet-proxy/internal/health"
 	"github.com/NathanBhanji/tsnet-proxy/internal/manager"
+	"tailscale.com/client/tailscale"
 	"tailscale.com/tsnet"
 )
 
@@ -26,16 +27,26 @@ type UIServer struct {
 	configPath    string
 	manager       *manager.Manager
 	healthChecker *health.Checker
+	apiClient     *tailscale.Client
+	tailnet       string
 }
 
 // NewUIServer creates a new UI server instance
 func NewUIServer(cfg *config.Config, configPath string, mgr *manager.Manager, checker *health.Checker, authKey, stateDir string) *UIServer {
+	var apiClient *tailscale.Client
+	if cfg.APIKey != "" && cfg.Tailnet != "" {
+		apiClient = tailscale.NewClient(cfg.Tailnet, nil)
+		apiClient.APIKey = cfg.APIKey
+	}
+
 	return &UIServer{
 		config:        cfg,
 		configPath:    configPath,
 		manager:       mgr,
 		healthChecker: checker,
 		apiHandler:    NewAPIHandler(mgr, checker, cfg, configPath),
+		apiClient:     apiClient,
+		tailnet:       cfg.Tailnet,
 		tsnetServer: &tsnet.Server{
 			Hostname:  cfg.ManagementUI.Hostname,
 			Dir:       stateDir + "/" + cfg.ManagementUI.Hostname,
@@ -135,13 +146,19 @@ func (s *UIServer) Stop() {
 
 // deleteDevice removes the UI device from Tailscale control plane
 func (s *UIServer) deleteDevice() {
+	if s.apiClient == nil {
+		log.Printf("API client not configured, skipping device deletion for UI server")
+		return
+	}
+
+	// Get local client to get device status
 	lc, err := s.tsnetServer.LocalClient()
 	if err != nil {
 		log.Printf("Failed to get LocalClient for UI server: %v", err)
 		return
 	}
 
-	status, err := lc.Status(nil)
+	status, err := lc.Status(context.Background())
 	if err != nil {
 		log.Printf("Failed to get status for UI server: %v", err)
 		return
@@ -152,8 +169,10 @@ func (s *UIServer) deleteDevice() {
 		return
 	}
 
-	log.Printf("Deleting UI device %s (ID: %d) from Tailscale...", s.config.ManagementUI.Hostname, status.Self.ID)
-	err = lc.DeleteDevice(nil, status.Self.ID)
+	deviceID := fmt.Sprintf("%d", status.Self.ID)
+	log.Printf("Deleting UI device %s (ID: %s) from Tailscale...", s.config.ManagementUI.Hostname, deviceID)
+
+	err = s.apiClient.DeleteDevice(context.Background(), deviceID)
 	if err != nil {
 		log.Printf("Failed to delete UI device: %v", err)
 	} else {

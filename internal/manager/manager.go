@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"log"
@@ -12,23 +13,34 @@ import (
 	"sync"
 
 	"github.com/NathanBhanji/tsnet-proxy/internal/config"
+	"tailscale.com/client/tailscale"
 	"tailscale.com/tsnet"
 )
 
 // Manager manages multiple tsnet services
 type Manager struct {
-	services map[string]*Service
-	authKey  string
-	stateDir string
-	mu       sync.RWMutex
+	services  map[string]*Service
+	authKey   string
+	stateDir  string
+	apiClient *tailscale.Client
+	tailnet   string
+	mu        sync.RWMutex
 }
 
 // NewManager creates a new Manager instance
-func NewManager(authKey, stateDir string) *Manager {
+func NewManager(authKey, stateDir, apiKey, tailnet string) *Manager {
+	var apiClient *tailscale.Client
+	if apiKey != "" && tailnet != "" {
+		apiClient = tailscale.NewClient(tailnet, nil)
+		apiClient.APIKey = apiKey
+	}
+
 	return &Manager{
-		services: make(map[string]*Service),
-		authKey:  authKey,
-		stateDir: stateDir,
+		services:  make(map[string]*Service),
+		authKey:   authKey,
+		stateDir:  stateDir,
+		apiClient: apiClient,
+		tailnet:   tailnet,
 	}
 }
 
@@ -233,13 +245,19 @@ func (m *Manager) Shutdown() {
 
 // deleteDevice removes the device from Tailscale control plane
 func (m *Manager) deleteDevice(ts *tsnet.Server, name string) {
+	if m.apiClient == nil {
+		log.Printf("API client not configured, skipping device deletion for %s", name)
+		return
+	}
+
+	// Get local client to get device status
 	lc, err := ts.LocalClient()
 	if err != nil {
 		log.Printf("Failed to get LocalClient for %s: %v", name, err)
 		return
 	}
 
-	status, err := lc.Status(nil)
+	status, err := lc.Status(context.Background())
 	if err != nil {
 		log.Printf("Failed to get status for %s: %v", name, err)
 		return
@@ -250,8 +268,10 @@ func (m *Manager) deleteDevice(ts *tsnet.Server, name string) {
 		return
 	}
 
-	log.Printf("Deleting device %s (ID: %d) from Tailscale...", name, status.Self.ID)
-	err = lc.DeleteDevice(nil, status.Self.ID)
+	deviceID := fmt.Sprintf("%d", status.Self.ID)
+	log.Printf("Deleting device %s (ID: %s) from Tailscale...", name, deviceID)
+
+	err = m.apiClient.DeleteDevice(context.Background(), deviceID)
 	if err != nil {
 		log.Printf("Failed to delete device %s: %v", name, err)
 	} else {

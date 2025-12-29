@@ -44,9 +44,11 @@ Traditional Tailscale setups require one Tailscale container per service, leadin
    cd tsnet-proxy
    ```
 
-2. **Set your Tailscale auth key:**
+2. **Set your Tailscale credentials:**
    ```bash
    export TS_AUTHKEY=tskey-auth-YOUR-KEY-HERE
+   export TS_API_KEY=tskey-api-YOUR-API-KEY-HERE  # Optional but recommended for instant device cleanup
+   export TS_TAILNET=yourtailnet.ts.net           # Your tailnet name (required if using API key)
    ```
 
 3. **Start the stack:**
@@ -63,13 +65,29 @@ Traditional Tailscale setups require one Tailscale container per service, leadin
 
 That's it! The example configuration includes Grafana, which will be available at `https://grafana.your-tailnet.ts.net`.
 
+### Device Cleanup on Shutdown
+
+When you stop the container (`docker-compose down`), all Tailscale devices are automatically deleted from your tailnet. This requires setting up the Tailscale API key:
+
+1. **Create an API key** at https://login.tailscale.com/admin/settings/keys
+2. **Set the environment variables:**
+   ```bash
+   export TS_API_KEY=tskey-api-YOUR-KEY
+   export TS_TAILNET=yourtailnet.ts.net  # Or your email if personal
+   ```
+3. **Restart the container** - devices will now be instantly removed on shutdown
+
+Without the API key, devices will still be cleaned up via ephemeral mode, but it may take a few minutes.
+
 ## Configuration
 
 ### Config File (`configs/services.yaml`)
 
 ```yaml
 # Global settings
-authKey: "${TS_AUTHKEY}"           # Tailscale auth key (from environment)
+authKey: "${TS_AUTHKEY}"            # Tailscale auth key (from environment)
+apiKey: "${TS_API_KEY}"             # Tailscale API key for instant device deletion (optional)
+tailnet: "${TS_TAILNET}"            # Your tailnet name (required if apiKey is set)
 stateDir: "/data/tsnet"             # Persistent state directory
 
 # Management UI
@@ -243,6 +261,8 @@ services:
     image: bhanji/tsnet-proxy:latest
     environment:
       - TS_AUTHKEY=${TS_AUTHKEY}
+      - TS_API_KEY=${TS_API_KEY}     # Optional: for instant device cleanup
+      - TS_TAILNET=${TS_TAILNET}     # Required if using API key
     volumes:
       - ./configs/services.yaml:/app/configs/services.yaml:rw
       - tsnet-data:/data/tsnet

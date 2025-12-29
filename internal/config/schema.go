@@ -6,6 +6,8 @@ import "time"
 type Config struct {
 	Services      []ServiceConfig `yaml:"services"`
 	AuthKey       string          `yaml:"authKey"`
+	APIKey        string          `yaml:"apiKey"`        // Tailscale API key for device deletion
+	Tailnet       string          `yaml:"tailnet"`       // Tailnet name (e.g., example.com)
 	StateDir      string          `yaml:"stateDir"`
 	ManagementUI  ManagementUI    `yaml:"managementUI"`
 	Metrics       MetricsConfig   `yaml:"metrics"`

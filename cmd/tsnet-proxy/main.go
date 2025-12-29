@@ -35,7 +35,7 @@ func main() {
 	log.Printf("Loaded configuration with %d services", len(cfg.Services))
 
 	// Create manager
-	mgr := manager.NewManager(cfg.AuthKey, cfg.StateDir)
+	mgr := manager.NewManager(cfg.AuthKey, cfg.StateDir, cfg.APIKey, cfg.Tailnet)
 
 	// Add all configured services
 	for _, svcCfg := range cfg.Services {

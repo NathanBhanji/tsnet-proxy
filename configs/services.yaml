@@ -6,6 +6,14 @@ services: []
 # Auth key from environment variable
 authKey: "${TS_AUTHKEY}"
 
+# API key for device deletion (optional but recommended)
+# Get one from: https://login.tailscale.com/admin/settings/keys
+apiKey: "${TS_API_KEY}"
+
+# Your tailnet name (required if apiKey is set)
+# Example: "example.com" or "user@example.com"
+tailnet: "${TS_TAILNET}"
+
 # State directory for tsnet persistence
 stateDir: "/data/tsnet"
 
