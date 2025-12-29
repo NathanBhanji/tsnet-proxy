@@ -1,9 +1,5 @@
-# Build stage
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
-
-# Build arguments for multi-arch support
-ARG TARGETOS
-ARG TARGETARCH
+# Build stage - use target platform for native compilation with CGO
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
@@ -17,15 +13,14 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the binary (enable CGO for crypto operations)
-# Cross-compilation with CGO for multi-arch builds
-RUN CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+# Build the binary with CGO enabled (native compilation for each platform)
+RUN CGO_ENABLED=1 go build \
     -ldflags='-w -s' \
     -o tsnet-proxy \
     ./cmd/tsnet-proxy
 
 # Runtime stage
-FROM --platform=$TARGETPLATFORM alpine:latest
+FROM alpine:latest
 
 # Install runtime dependencies (including libc for CGO-built binary)
 RUN apk --no-cache add ca-certificates libc6-compat
