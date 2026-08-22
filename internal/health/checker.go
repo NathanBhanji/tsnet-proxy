@@ -14,8 +14,10 @@ import (
 type Checker struct {
 	manager *manager.Manager
 	client  *http.Client
-	mu      sync.RWMutex
-	stopCh  chan struct{}
+
+	mu      sync.Mutex
+	ctx     context.Context               // parent context for all watches
+	cancels map[string]context.CancelFunc // service name -> stop its watch
 }
 
 // NewChecker creates a new health checker instance
@@ -32,26 +34,70 @@ func NewChecker(mgr *manager.Manager) *Checker {
 				MaxIdleConnsPerHost: 10,
 			},
 		},
-		stopCh: make(chan struct{}),
+		ctx:     context.Background(),
+		cancels: make(map[string]context.CancelFunc),
 	}
 }
 
-// Start begins health checking for all services
+// Start begins health checking for all services currently registered with the
+// manager. Services added later must be registered with Watch.
 func (c *Checker) Start(ctx context.Context) {
-	services := c.manager.GetAllServices()
+	c.mu.Lock()
+	c.ctx = ctx
+	c.mu.Unlock()
 
+	services := c.manager.GetAllServices()
 	for _, svc := range services {
-		if svc.Config.HealthCheck.Enabled {
-			go c.runHealthCheck(ctx, svc)
-		}
+		c.Watch(svc)
 	}
 
 	log.Printf("Health checker started for %d services", len(services))
 }
 
+// Watch starts (or restarts) periodic health checks for a service. It is safe
+// to call for a service that is already watched; the previous watch is stopped
+// first so configuration changes take effect. Services with health checks
+// disabled are left in their current (default healthy) state.
+func (c *Checker) Watch(svc *manager.Service) {
+	if svc == nil {
+		return
+	}
+	name := svc.Config.Name
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if cancel, ok := c.cancels[name]; ok {
+		cancel()
+		delete(c.cancels, name)
+	}
+	if !svc.Config.HealthCheck.Enabled {
+		return
+	}
+
+	ctx, cancel := context.WithCancel(c.ctx)
+	c.cancels[name] = cancel
+	go c.runHealthCheck(ctx, svc)
+}
+
+// Unwatch stops health checks for a service, if any are running.
+func (c *Checker) Unwatch(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if cancel, ok := c.cancels[name]; ok {
+		cancel()
+		delete(c.cancels, name)
+	}
+}
+
 // Stop stops all health checking
 func (c *Checker) Stop() {
-	close(c.stopCh)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for name, cancel := range c.cancels {
+		cancel()
+		delete(c.cancels, name)
+	}
 	log.Printf("Health checker stopped")
 }
 
@@ -69,9 +115,6 @@ func (c *Checker) runHealthCheck(ctx context.Context, svc *manager.Service) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("Health checker for service %s stopped (context done)", svc.Config.Name)
-			return
-		case <-c.stopCh:
 			log.Printf("Health checker for service %s stopped", svc.Config.Name)
 			return
 		case <-ticker.C:

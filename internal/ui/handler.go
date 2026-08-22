@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/NathanBhanji/tsnet-proxy/internal/activity"
 	"github.com/NathanBhanji/tsnet-proxy/internal/config"
 	"github.com/NathanBhanji/tsnet-proxy/internal/health"
 	"github.com/NathanBhanji/tsnet-proxy/internal/manager"
+	"github.com/NathanBhanji/tsnet-proxy/internal/metrics"
 	"tailscale.com/client/tailscale"
 	"tailscale.com/tsnet"
 )
@@ -31,8 +33,9 @@ type UIServer struct {
 	tailnet       string
 }
 
-// NewUIServer creates a new UI server instance
-func NewUIServer(cfg *config.Config, configPath string, mgr *manager.Manager, checker *health.Checker, authKey, stateDir string) *UIServer {
+// NewUIServer creates a new UI server instance. actLog may be nil, in which
+// case /api/activity reports 404.
+func NewUIServer(cfg *config.Config, configPath string, mgr *manager.Manager, checker *health.Checker, actLog *activity.Log, authKey, stateDir string) *UIServer {
 	var apiClient *tailscale.Client
 	if cfg.APIKey != "" && cfg.Tailnet != "" {
 		apiClient = tailscale.NewClient(cfg.Tailnet, tailscale.APIKey(cfg.APIKey))
@@ -43,7 +46,7 @@ func NewUIServer(cfg *config.Config, configPath string, mgr *manager.Manager, ch
 		configPath:    configPath,
 		manager:       mgr,
 		healthChecker: checker,
-		apiHandler:    NewAPIHandler(mgr, checker, cfg, configPath),
+		apiHandler:    NewAPIHandler(mgr, checker, cfg, configPath, actLog),
 		apiClient:     apiClient,
 		tailnet:       cfg.Tailnet,
 		tsnetServer: &tsnet.Server{
@@ -115,6 +118,11 @@ func (s *UIServer) Start() error {
 	})
 
 	mux.HandleFunc("/api/health", s.apiHandler.HealthStatus)
+	mux.HandleFunc("/api/config", s.apiHandler.Config)     // GET raw YAML, PUT to apply
+	mux.HandleFunc("/api/activity", s.apiHandler.Activity) // recent proxied requests
+	mux.HandleFunc("/api/settings", s.handleSettings)      // masked config + tailnet info
+	mux.HandleFunc("/api/devices", s.handleDevices)        // tsnet nodes owned by this proxy
+	mux.Handle("/api/metrics", metrics.Handler())          // Prometheus exposition
 
 	// Serve static files
 	staticFS, err := fs.Sub(staticFiles, "static")
@@ -125,7 +133,7 @@ func (s *UIServer) Start() error {
 
 	// Start HTTP server in goroutine
 	go func() {
-		log.Printf("Management UI listening on http://%s.your-tailnet.ts.net", s.config.ManagementUI.Hostname)
+		log.Printf("Management UI listening on http://%s.<tailnet>.ts.net", s.config.ManagementUI.Hostname)
 		if err := http.Serve(ln, mux); err != nil {
 			log.Printf("Management UI server error: %v", err)
 		}

@@ -162,12 +162,41 @@ services:
 
 The service will appear immediately in your Tailscale network!
 
-### Adding Services via Config File
+### Editing the Config File
 
-Edit `configs/services.yaml` and restart:
+Open the **config** tab in the management UI to edit `configs/services.yaml` in place and
+click **apply & reload**. The proxy validates the YAML, rewrites the file atomically and
+hot-reloads services: new services are started, removed services are stopped (and their
+devices deleted from the tailnet), and services whose settings changed are restarted on the
+same device. Changes to top-level settings (`authKey`, `apiKey`, `tailnet`, `stateDir`,
+`managementUI`, `metrics`) are saved but need a restart to take effect — the UI tells you which.
+
+You can also edit the file by hand and restart:
 ```bash
 docker-compose restart tsnet-proxy
 ```
+
+### Management API
+
+Everything the dashboard does is available over plain JSON/YAML on the UI device
+(`http://tsnet-proxy-docker.<tailnet>.ts.net`):
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/services` | List services (sorted by name) with health flag |
+| `POST` | `/api/services` | Add a service (JSON body, same shape as the list) |
+| `GET` | `/api/services/{name}` | One service |
+| `DELETE` | `/api/services/{name}` | Remove a service and delete its tailnet device |
+| `GET` | `/api/health` | `{ "<service>": true|false }` |
+| `GET` | `/api/config` | Raw `services.yaml` as stored on disk (env placeholders intact) |
+| `PUT` | `/api/config` | Validate, save and hot-reload; returns `{added, removed, updated, unchanged, restartRequired, errors}` (HTTP 500 with the same body if any service failed) |
+| `GET` | `/api/settings` | Running config with secrets masked, plus the tailnet's MagicDNS suffix and the UI's own URL |
+| `GET` | `/api/devices` | The tsnet devices this proxy runs (UI + one per service): IP, DNS name, online state |
+| `GET` | `/api/activity?limit=N` | The most recent proxied requests (newest first, in-memory, last 200) |
+| `GET` | `/api/metrics` | Prometheus exposition (same data as the metrics port) |
+
+The API has no authentication of its own — it is only reachable from your tailnet, so use
+[Tailscale ACLs](https://tailscale.com/kb/1018/acls) to restrict who can reach the UI device.
 
 ### Path-Based Routing Example
 
@@ -219,18 +248,16 @@ tls:
 
 ### Prometheus Metrics
 
-Metrics are exposed at `http://localhost:9090/metrics` (inside container):
+Metrics are exposed at `http://localhost:9090/metrics` (inside the container) and, for
+the management dashboard, at `/api/metrics` on the UI device:
 
 ```yaml
-# Request metrics
+# Request metrics (one sample per proxied request, including 503/404s raised by the proxy)
 tsnet_proxy_requests_total{service, method, status}
 tsnet_proxy_request_duration_seconds{service, method}
 
 # Health metrics
 tsnet_proxy_service_health{service}  # 1 = healthy, 0 = unhealthy
-
-# Connection metrics
-tsnet_proxy_active_connections{service}
 ```
 
 ### Sample Prometheus Config
@@ -336,7 +363,7 @@ Then add each service via the UI or config file!
 
 1. Check `managementUI.enabled: true` in config
 2. Verify UI device appears in Tailscale admin panel
-3. Try accessing via Tailscale IP: `http://100.x.x.x:8080`
+3. Try accessing via Tailscale IP: `http://100.x.x.x` (the UI listens on port 80 of its own tailnet device)
 4. Check logs for UI startup errors
 
 ### Backend connection errors
@@ -374,9 +401,9 @@ tsnet-proxy/
 │   └── tsnet-proxy/
 │       └── main.go              # Application entry point
 ├── internal/
+│   ├── activity/                # In-memory ring buffer of recent requests
 │   ├── config/                  # Configuration parsing
-│   ├── manager/                 # Service lifecycle management
-│   ├── proxy/                   # Reverse proxy logic
+│   ├── manager/                 # Service lifecycle management + request observers
 │   ├── health/                  # Health checking system
 │   ├── ui/                      # Web UI and API
 │   └── metrics/                 # Prometheus metrics
@@ -416,7 +443,7 @@ MIT License - see [LICENSE](LICENSE) file for details
 
 - Built with [tsnet](https://tailscale.com/kb/1244/tsnet) by Tailscale
 - Inspired by [tsnsrv](https://github.com/boinkor-net/tsnsrv) and [tsnet-composable](https://github.com/n-elderbroom/tsnet-composable)
-- UI built with [Tailwind CSS](https://tailwindcss.com)
+- UI designed in [Claude Design](https://claude.ai/design) — vanilla HTML/CSS/JS, no build step
 
 ## Support
 

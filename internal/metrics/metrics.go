@@ -40,16 +40,22 @@ var (
 		},
 		[]string{"service"},
 	)
-
-	// Active connections
-	activeConnections = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "tsnet_proxy_active_connections",
-			Help: "Number of active connections per service",
-		},
-		[]string{"service"},
-	)
 )
+
+// RecordRequest records one proxied request. Its signature matches
+// manager.RequestObserver; register it with Manager.AddRequestObserver so
+// every service's traffic is counted.
+func RecordRequest(service, method, _ string, status int, d time.Duration) {
+	requestsTotal.WithLabelValues(service, method, strconv.Itoa(status)).Inc()
+	requestDuration.WithLabelValues(service, method).Observe(d.Seconds())
+}
+
+// Handler returns the Prometheus exposition handler. It is the same handler
+// served on the metrics port, exposed so the management UI can mount it at
+// /api/metrics without a second scrape target.
+func Handler() http.Handler {
+	return promhttp.Handler()
+}
 
 // MetricsServer handles Prometheus metrics
 type MetricsServer struct {
@@ -74,7 +80,7 @@ func (m *MetricsServer) Start() error {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
+	mux.Handle("/metrics", Handler())
 
 	m.server = &http.Server{
 		Addr:    ":" + strconv.Itoa(m.config.Metrics.Port),
@@ -118,48 +124,4 @@ func (m *MetricsServer) collectServiceMetrics() {
 			}
 		}
 	}
-}
-
-// responseWriter wraps http.ResponseWriter to capture status code
-type responseWriter struct {
-	http.ResponseWriter
-	statusCode int
-	written    bool
-}
-
-func (rw *responseWriter) WriteHeader(code int) {
-	if !rw.written {
-		rw.statusCode = code
-		rw.written = true
-		rw.ResponseWriter.WriteHeader(code)
-	}
-}
-
-func (rw *responseWriter) Write(b []byte) (int, error) {
-	if !rw.written {
-		rw.WriteHeader(http.StatusOK)
-	}
-	return rw.ResponseWriter.Write(b)
-}
-
-// MetricsMiddleware wraps an HTTP handler with Prometheus metrics collection
-func MetricsMiddleware(serviceName string, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		// Wrap response writer to capture status code
-		rw := &responseWriter{ResponseWriter: w, statusCode: 200}
-
-		// Track active connections
-		activeConnections.WithLabelValues(serviceName).Inc()
-		defer activeConnections.WithLabelValues(serviceName).Dec()
-
-		// Handle request
-		next.ServeHTTP(rw, r)
-
-		// Record metrics
-		duration := time.Since(start).Seconds()
-		requestsTotal.WithLabelValues(serviceName, r.Method, strconv.Itoa(rw.statusCode)).Inc()
-		requestDuration.WithLabelValues(serviceName, r.Method).Observe(duration)
-	})
 }
