@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -79,6 +80,10 @@ func (h *APIHandler) ListServices(w http.ResponseWriter, r *http.Request) {
 
 		response = append(response, svcResp)
 	}
+
+	// GetAllServices returns a map, so iteration order is random; sort by name
+	// so the API (and the UI cards built from it) have a stable order.
+	sort.Slice(response, func(i, j int) bool { return response[i].Name < response[j].Name })
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)

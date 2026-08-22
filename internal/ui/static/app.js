@@ -66,6 +66,8 @@ async function load() {
   } catch (e) {
     if (!state.demo) { state.demo = true; state.services = DEMO.services; }
   }
+  // Keep card order stable across polls regardless of API ordering.
+  state.services.sort((a, b) => a.name.localeCompare(b.name));
 
   await Promise.all([
     api('/api/health').then(h => { state.health = h || {}; }).catch(() => {}),
