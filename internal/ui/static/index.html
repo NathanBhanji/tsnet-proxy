@@ -1,152 +1,388 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>tsnet-proxy Management</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>tsnet-proxy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #131210;
+    --bg-alt: #161513;
+    --card: #1b1917;
+    --code: #100f0d;
+    --edge: #2b2823;
+    --edge-soft: #201e1b;
+    --edge-hi: #3d382f;
+    --fg: #ece7dc;
+    --fg-mid: #c9c3b6;
+    --dim: #8b8478;
+    --faint: #5e594f;
+    --amber: #e6b44c;
+    --amber-hi: #f2c96e;
+    --green: #82c98d;
+    --red: #e0806a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--amber); text-decoration: none; }
+  a:hover { color: var(--amber-hi); }
+  ::selection { background: var(--amber); color: var(--bg); }
+  input, select, textarea, button { font-family: inherit; font-size: inherit; }
+  h1, h2 { margin: 0; font-weight: 700; }
+
+  /* ---------- header ---------- */
+  header {
+    position: sticky; top: 0; z-index: 20;
+    height: 52px; padding: 0 24px;
+    display: flex; align-items: center; gap: 28px;
+    background: var(--bg); border-bottom: 1px solid var(--edge);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -0.02em; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .dot.up { background: var(--green); box-shadow: 0 0 8px rgba(130,201,141,.5); }
+  .dot.down { background: var(--red); box-shadow: 0 0 8px rgba(224,128,106,.5); }
+  .dot.idle { background: #4a453d; }
+  nav { display: flex; gap: 2px; flex: 1; }
+  nav button {
+    background: transparent; border: 0; color: var(--dim);
+    padding: 6px 11px; font-size: 12px; cursor: pointer; border-radius: 3px;
+    transition: color .12s, background .12s;
+  }
+  nav button:hover { color: var(--fg); }
+  nav button[aria-current="page"] { background: #241f18; color: var(--amber); }
+  .meta { display: flex; align-items: center; gap: 20px; color: var(--dim); font-size: 12px; }
+  .meta b { color: var(--fg); font-weight: 400; }
+  .rule { width: 1px; height: 14px; background: var(--edge); }
+
+  .btn-primary {
+    background: var(--amber); color: var(--bg); border: 0;
+    padding: 7px 14px; font-size: 12px; font-weight: 700;
+    border-radius: 3px; cursor: pointer;
+  }
+  .btn-primary:hover { background: var(--amber-hi); }
+  .btn-ghost {
+    background: transparent; border: 1px solid var(--edge); color: var(--dim);
+    padding: 4px 9px; font-size: 11px; border-radius: 3px; cursor: pointer;
+    transition: color .12s, border-color .12s;
+  }
+  .btn-ghost:hover { border-color: var(--amber); color: var(--amber); }
+  .btn-ghost.danger:hover { border-color: var(--red); color: var(--red); }
+  .btn-back { background: none; border: 0; color: var(--dim); font-size: 12px; cursor: pointer; padding: 0; }
+  .btn-back:hover { color: var(--amber); }
+
+  /* ---------- layout ---------- */
+  .split { display: grid; grid-template-columns: minmax(0,1fr) 330px; min-height: calc(100vh - 52px); }
+  @media (max-width: 1080px) { .split { grid-template-columns: minmax(0,1fr); } aside { border-left: 0 !important; border-top: 1px solid var(--edge); } }
+  main { padding: 24px; min-width: 0; }
+  aside { border-left: 1px solid var(--edge); padding: 24px 20px; background: var(--bg-alt); min-width: 0; }
+  .section-label {
+    font-size: 12px; font-weight: 500; color: var(--dim);
+    text-transform: uppercase; letter-spacing: 0.1em;
+  }
+  .row-between { display: flex; align-items: baseline; justify-content: space-between; }
+
+  /* ---------- stat strip ---------- */
+  .stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px; background: var(--edge); border: 1px solid var(--edge);
+    border-radius: 4px; overflow: hidden;
+  }
+  .stat { background: var(--card); padding: 14px 16px; }
+  .stat-k { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+  .stat-v { font-size: 22px; font-weight: 500; letter-spacing: -0.03em; }
+  .stat-v span { color: var(--dim); font-size: 12px; font-weight: 400; margin-left: 3px; }
+
+  /* ---------- service cards ---------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+  .card {
+    background: var(--card); border: 1px solid var(--edge);
+    border-radius: 4px; padding: 16px; transition: border-color .12s;
+  }
+  .card:hover { border-color: var(--edge-hi); }
+  .card-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
+  .card-head .dot { margin-top: 5px; }
+  .host { font-weight: 700; font-size: 15px; letter-spacing: -0.02em; margin-bottom: 3px; }
+  .host span { color: var(--faint); font-weight: 400; }
+  .backend { color: var(--dim); font-size: 12px; }
+  .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+    padding: 3px 7px; border-radius: 3px; white-space: nowrap; border: 1px solid;
+  }
+  .badge.up { color: var(--green); border-color: rgba(130,201,141,.25); background: rgba(130,201,141,.08); }
+  .badge.down { color: var(--red); border-color: rgba(224,128,106,.25); background: rgba(224,128,106,.08); }
+  .spark { display: flex; align-items: flex-end; gap: 2px; height: 38px; margin-bottom: 14px; }
+  .spark i { flex: 1; min-width: 2px; border-radius: 1px; background: #4c6b52; }
+  .spark.down i { background: #6b4a42; }
+  .metrics-row {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    padding-top: 12px; border-top: 1px solid var(--edge); margin-bottom: 12px;
+  }
+  .metrics-row .k { color: var(--faint); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .metrics-row .v { font-size: 14px; }
+  .metrics-row .v.warn { color: var(--amber); }
+  .metrics-row .v.bad { color: var(--red); }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .tag {
+    background: #1f1e1a; border: 1px solid var(--edge); color: var(--dim);
+    padding: 3px 7px; font-size: 10px; border-radius: 3px;
+  }
+  .tag.accent { background: #241f18; border-color: #3a3226; color: var(--amber); }
+  .tag.danger { color: var(--red); }
+  .spacer { flex: 1; }
+
+  /* ---------- activity rail ---------- */
+  .log { display: flex; flex-direction: column; font-size: 11px; }
+  .log-row {
+    display: grid; grid-template-columns: 52px minmax(0,1fr) auto; gap: 8px;
+    padding: 6px 0; border-bottom: 1px solid var(--edge-soft); align-items: baseline;
+  }
+  .log-row .t { color: var(--faint); }
+  .log-row .s { color: var(--amber); }
+  .log-row .p { color: var(--dim); }
+  .code-2 { color: var(--green); }
+  .code-4 { color: var(--amber); }
+  .code-5 { color: var(--red); }
+  .devices { display: flex; flex-direction: column; gap: 8px; font-size: 11px; }
+  .device { display: flex; align-items: center; gap: 9px; }
+  .device .dot { width: 6px; height: 6px; }
+  .device .ip { color: var(--faint); }
+
+  /* ---------- detail ---------- */
+  .panel { border: 1px solid var(--edge); border-radius: 4px; background: var(--card); padding: 18px 20px; }
+  .panel-label { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; }
+  .kv { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; border-bottom: 1px solid var(--edge-soft); }
+  .kv span:first-child { color: var(--dim); }
+  .kv span:last-child { text-align: right; word-break: break-all; }
+  .chart { display: flex; align-items: flex-end; gap: 3px; height: 120px; }
+  .chart i { flex: 1; min-width: 2px; border-radius: 1px; background: #4c6b52; }
+  .chart.down i { background: #6b4a42; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .two-col { grid-template-columns: 1fr; } }
+
+  /* ---------- config ---------- */
+  .editor { border: 1px solid var(--edge); border-radius: 4px; overflow: hidden; }
+  .editor-bar {
+    background: var(--card); border-bottom: 1px solid var(--edge);
+    padding: 10px 16px; display: flex; align-items: center; gap: 12px;
+  }
+  .editor-bar .file { color: var(--dim); font-size: 12px; }
+  .editor-body { background: var(--code); display: flex; font-size: 12px; line-height: 1.75; }
+  .gutter { color: #413d36; text-align: right; padding: 16px 14px; user-select: none; flex-shrink: 0; }
+  .editor-body textarea {
+    flex: 1; background: transparent; border: 0; color: var(--fg-mid);
+    padding: 16px 18px 16px 0; resize: vertical; min-height: 460px;
+    line-height: 1.75; outline: none; white-space: pre; overflow-wrap: normal; overflow-x: auto;
+  }
+
+  /* ---------- forms ---------- */
+  .field { display: block; padding: 10px 0; }
+  .field-label { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 6px; }
+  .field-hint { color: var(--faint); font-size: 11px; margin-top: 5px; }
+  input[type="text"], input[type="number"] {
+    background: var(--bg); border: 1px solid var(--edge); color: var(--fg);
+    padding: 9px 11px; font-size: 12px; border-radius: 3px; width: 100%;
+  }
+  input:focus { border-color: var(--amber); outline: none; }
+  .check { display: flex; align-items: center; gap: 9px; padding: 8px 0; color: var(--fg-mid); }
+  .check input { accent-color: var(--amber); width: 14px; height: 14px; }
+  .settings-row {
+    display: grid; grid-template-columns: 180px minmax(0,1fr); gap: 16px;
+    align-items: center; padding: 10px 0; border-bottom: 1px solid var(--edge-soft);
+  }
+  .settings-row > span { color: var(--dim); font-size: 12px; }
+  section.group { border: 1px solid var(--edge); border-radius: 4px; background: var(--card); margin-bottom: 16px; }
+  section.group > header {
+    position: static; height: auto; display: block; padding: 14px 20px;
+    border-bottom: 1px solid var(--edge); border-top: 0; background: transparent;
+  }
+  section.group > header .note { color: var(--dim); font-size: 12px; margin-top: 2px; }
+  section.group > div { padding: 8px 20px 16px; }
+
+  /* ---------- modal ---------- */
+  .scrim {
+    position: fixed; inset: 0; background: rgba(10,9,8,.8);
+    display: flex; align-items: center; justify-content: center; z-index: 50; padding: 24px;
+  }
+  .modal {
+    background: var(--card); border: 1px solid var(--edge-hi); border-radius: 5px;
+    width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto;
+    box-shadow: 0 24px 70px rgba(0,0,0,.6);
+  }
+  .modal-head { padding: 16px 20px; border-bottom: 1px solid var(--edge); display: flex; align-items: center; font-weight: 700; }
+  .modal-body { padding: 8px 20px 4px; }
+  .modal-foot { padding: 14px 20px; border-top: 1px solid var(--edge); display: flex; gap: 8px; align-items: center; }
+  .x { background: none; border: 0; color: var(--dim); cursor: pointer; font-size: 15px; }
+  .x:hover { color: var(--fg); }
+
+  .empty { color: var(--dim); border: 1px dashed var(--edge); border-radius: 4px; padding: 40px; text-align: center; }
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--card); border: 1px solid var(--edge-hi); border-radius: 4px;
+    padding: 10px 16px; font-size: 12px; z-index: 60; box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  }
+  .toast.err { border-color: var(--red); color: var(--red); }
+  [hidden] { display: none !important; }
+</style>
 </head>
-<body class="bg-gray-50">
-    <div class="container mx-auto px-4 py-8 max-w-7xl">
-        <header class="text-center mb-12 pb-8 border-b-2 border-gray-200">
-            <h1 class="text-4xl font-bold mb-2">🚀 tsnet-proxy</h1>
-            <p class="text-gray-600 text-lg">Tailscale Multi-Service Reverse Proxy</p>
-        </header>
+<body>
 
-        <main>
-            <section class="flex flex-col sm:flex-row gap-3 mb-8">
-                <button id="add-service-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-medium transition-all hover:shadow-lg">
-                    + Add Service
-                </button>
-                <button id="refresh-btn" class="bg-white hover:bg-gray-50 border border-gray-300 px-6 py-3 rounded-lg font-medium transition-all hover:shadow-lg">
-                    🔄 Refresh
-                </button>
-            </section>
+<header>
+  <div class="brand"><span class="dot up" id="global-dot"></span>tsnet-proxy</div>
+  <nav id="nav">
+    <button data-view="services" aria-current="page">services</button>
+    <button data-view="config">config</button>
+    <button data-view="settings">settings</button>
+  </nav>
+  <div class="meta">
+    <span>tailnet <b id="tailnet">—</b></span>
+    <span class="rule"></span>
+    <span id="health-summary">—</span>
+  </div>
+  <button class="btn-primary" id="open-add">+ service</button>
+</header>
 
-            <section id="services-list" class="space-y-6">
-                <div class="text-center py-12 text-gray-500">Loading services...</div>
-            </section>
-        </main>
+<!-- services + detail -->
+<div class="split" id="view-services">
+  <main>
+    <div class="stats" id="stat-strip"></div>
+
+    <div class="row-between" style="margin:24px 0 12px">
+      <h2 class="section-label">services</h2>
+      <span style="color:var(--faint);font-size:11px" id="refresh-note">refreshing 5s</span>
     </div>
 
-    <!-- Add Service Modal -->
-    <div id="add-service-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 overflow-y-auto">
-        <div class="flex min-h-screen items-center justify-center p-4">
-            <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-                <div class="flex justify-between items-center p-6 border-b border-gray-200">
-                    <h2 class="text-2xl font-bold">Add New Service</h2>
-                    <button class="close text-gray-400 hover:text-gray-600 text-3xl leading-none">&times;</button>
-                </div>
+    <div class="grid" id="service-grid"></div>
+    <div class="empty" id="services-empty" hidden>No services configured. Add one to create your first tailnet device.</div>
+  </main>
 
-                <form id="add-service-form" class="p-6">
-                    <div class="mb-6">
-                        <label for="service-name" class="block text-sm font-medium text-gray-700 mb-2">Service Name *</label>
-                        <input type="text" id="service-name" name="name" required
-                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                               placeholder="e.g., grafana" pattern="[a-z0-9-]+"
-                               title="Lowercase letters, numbers, and hyphens only">
-                        <p class="mt-1 text-sm text-gray-500">This will be the Tailscale hostname (e.g., grafana.your-tailnet.ts.net)</p>
-                    </div>
+  <aside>
+    <div class="row-between" style="margin-bottom:14px">
+      <h2 class="section-label">activity</h2>
+      <span style="color:var(--green);font-size:11px" id="activity-state">live</span>
+    </div>
+    <div class="log" id="activity-log"></div>
 
-                    <div class="mb-6">
-                        <label for="service-backend" class="block text-sm font-medium text-gray-700 mb-2">Backend URL *</label>
-                        <input type="url" id="service-backend" name="backend" required
-                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                               placeholder="http://grafana:3000">
-                        <p class="mt-1 text-sm text-gray-500">Docker service name or IP address</p>
-                    </div>
+    <h2 class="section-label" style="display:block;margin:26px 0 12px">tailnet devices</h2>
+    <div class="devices" id="device-list"></div>
+  </aside>
+</div>
 
-                    <div class="mb-6">
-                        <label for="service-paths" class="block text-sm font-medium text-gray-700 mb-2">Path Prefixes (optional)</label>
-                        <input type="text" id="service-paths" name="paths"
-                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                               placeholder="/api, /grafana">
-                        <p class="mt-1 text-sm text-gray-500">Comma-separated paths. Leave empty to proxy all paths.</p>
-                    </div>
+<main id="view-detail" hidden>
+  <button class="btn-back" id="detail-back" style="margin-bottom:18px">&larr; all services</button>
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap">
+    <span class="dot up" id="detail-dot"></span>
+    <h1 style="font-size:26px;letter-spacing:-0.03em" id="detail-host"></h1>
+    <span class="badge up" id="detail-badge"></span>
+  </div>
+  <div style="color:var(--dim);margin-bottom:28px" id="detail-backend"></div>
 
-                    <div class="mb-6">
-                        <label class="flex items-center">
-                            <input type="checkbox" id="service-strip-prefix" name="stripPrefix"
-                                   class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
-                            <span class="ml-2 text-sm font-medium text-gray-700">Strip path prefix before forwarding</span>
-                        </label>
-                    </div>
+  <div class="stats" id="detail-stats" style="margin-bottom:24px"></div>
 
-                    <div class="border-t border-gray-200 pt-6 mt-6">
-                        <h3 class="text-lg font-semibold mb-4">Health Check</h3>
-                        <div class="mb-4">
-                            <label class="flex items-center">
-                                <input type="checkbox" id="health-enabled" name="healthCheckEnabled" checked
-                                       class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
-                                <span class="ml-2 text-sm font-medium text-gray-700">Enable health checks</span>
-                            </label>
-                        </div>
+  <div class="panel" style="margin-bottom:24px">
+    <div class="row-between" style="margin-bottom:16px">
+      <span class="panel-label" style="margin:0">requests / min &middot; 60m</span>
+      <span style="color:var(--faint);font-size:11px" id="detail-peak"></span>
+    </div>
+    <div class="chart" id="detail-chart"></div>
+  </div>
 
-                        <div id="health-check-options" class="space-y-4">
-                            <div>
-                                <label for="health-path" class="block text-sm font-medium text-gray-700 mb-2">Health Check Path *</label>
-                                <input type="text" id="health-path" name="healthCheckPath"
-                                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                       value="/health" placeholder="/health">
-                            </div>
+  <div class="two-col">
+    <div class="panel">
+      <div class="panel-label">health check</div>
+      <div id="detail-hc"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-label">routing &amp; tls</div>
+      <div id="detail-route"></div>
+    </div>
+  </div>
+</main>
 
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                <div>
-                                    <label for="health-interval" class="block text-sm font-medium text-gray-700 mb-2">Interval</label>
-                                    <input type="text" id="health-interval" name="healthCheckInterval"
-                                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                           value="30s" placeholder="30s">
-                                </div>
+<!-- config -->
+<main id="view-config" hidden style="display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px;align-items:start">
+  <div class="editor">
+    <div class="editor-bar">
+      <span class="file">configs/services.yaml</span>
+      <span class="spacer"></span>
+      <span style="color:var(--amber);font-size:11px" id="dirty-flag" hidden>&#9679; unsaved changes</span>
+      <button class="btn-primary" id="apply-config" style="padding:5px 12px;font-size:11px">apply &amp; reload</button>
+    </div>
+    <div class="editor-body">
+      <div class="gutter" id="gutter">1</div>
+      <textarea id="yaml" spellcheck="false"></textarea>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-label">validation</div>
+    <div id="validation"></div>
+    <p style="color:var(--faint);font-size:11px;margin:14px 0 0;line-height:1.6">
+      Applying rewrites the file on disk and hot-reloads changed services. Devices for removed services are deleted from the tailnet.
+    </p>
+  </div>
+</main>
 
-                                <div>
-                                    <label for="health-timeout" class="block text-sm font-medium text-gray-700 mb-2">Timeout</label>
-                                    <input type="text" id="health-timeout" name="healthCheckTimeout"
-                                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                           value="5s" placeholder="5s">
-                                </div>
+<!-- settings -->
+<main id="view-settings" hidden style="max-width:720px">
+  <div id="settings-groups"></div>
+</main>
 
-                                <div>
-                                    <label for="health-threshold" class="block text-sm font-medium text-gray-700 mb-2">Failure Threshold</label>
-                                    <input type="number" id="health-threshold" name="healthCheckThreshold"
-                                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                           value="3" min="1" max="10">
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="border-t border-gray-200 pt-6 mt-6">
-                        <h3 class="text-lg font-semibold mb-4">TLS/HTTPS Backend</h3>
-                        <div class="mb-4">
-                            <label class="flex items-center">
-                                <input type="checkbox" id="tls-enabled" name="tlsEnabled"
-                                       class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
-                                <span class="ml-2 text-sm font-medium text-gray-700">Backend uses HTTPS</span>
-                            </label>
-                        </div>
-
-                        <div id="tls-options" class="hidden">
-                            <label class="flex items-center">
-                                <input type="checkbox" id="tls-skip-verify" name="tlsSkipVerify"
-                                       class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
-                                <span class="ml-2 text-sm font-medium text-gray-700">Skip TLS certificate verification (insecure)</span>
-                            </label>
-                        </div>
-                    </div>
-
-                    <div class="flex justify-end gap-3 pt-6 mt-6 border-t border-gray-200">
-                        <button type="button" id="cancel-btn" class="px-6 py-2 border border-gray-300 rounded-lg font-medium hover:bg-gray-50 transition">
-                            Cancel
-                        </button>
-                        <button type="submit" class="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition">
-                            Add Service
-                        </button>
-                    </div>
-                </form>
-            </div>
+<!-- add service -->
+<div class="scrim" id="add-scrim" hidden>
+  <div class="modal">
+    <div class="modal-head">add service<span class="spacer"></span><button class="x" id="close-add">&#10005;</button></div>
+    <form class="modal-body" id="add-form">
+      <label class="field">
+        <div class="field-label">service name</div>
+        <input type="text" name="name" placeholder="grafana" required pattern="[a-z0-9-]+">
+        <div class="field-hint">becomes &lt;name&gt;.&lt;tailnet&gt; &middot; lowercase, digits, hyphens</div>
+      </label>
+      <label class="field">
+        <div class="field-label">backend url</div>
+        <input type="text" name="backend" placeholder="http://grafana:3000" required>
+        <div class="field-hint">reachable from the proxy container's docker network</div>
+      </label>
+      <label class="field">
+        <div class="field-label">paths</div>
+        <input type="text" name="paths" placeholder="/api, /grafana">
+        <div class="field-hint">comma separated &middot; empty proxies every path</div>
+      </label>
+      <div class="check"><input type="checkbox" name="stripPrefix" id="f-strip"><label for="f-strip">strip matched prefix before forwarding</label></div>
+      <div class="check"><input type="checkbox" name="tlsEnabled" id="f-tls"><label for="f-tls">backend uses https</label></div>
+      <div class="check"><input type="checkbox" name="tlsSkipVerify" id="f-skip"><label for="f-skip">skip certificate verification (insecure)</label></div>
+      <div class="check"><input type="checkbox" name="hcEnabled" id="f-hc" checked><label for="f-hc">enable health checks</label></div>
+      <div id="hc-fields">
+        <label class="field">
+          <div class="field-label">health check path</div>
+          <input type="text" name="hcPath" value="/health">
+          <div class="field-hint">2xx or 3xx counts as healthy</div>
+        </label>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+          <label class="field"><div class="field-label">interval</div><input type="text" name="hcInterval" value="30s"></label>
+          <label class="field"><div class="field-label">timeout</div><input type="text" name="hcTimeout" value="5s"></label>
+          <label class="field"><div class="field-label">threshold</div><input type="number" name="hcThreshold" value="3" min="1"></label>
         </div>
+      </div>
+    </form>
+    <div class="modal-foot">
+      <span class="spacer" style="color:var(--faint);font-size:11px">appears on your tailnet in ~30s</span>
+      <button class="btn-ghost" id="cancel-add" style="padding:8px 14px;font-size:12px">cancel</button>
+      <button class="btn-primary" id="submit-add" style="padding:8px 16px">create device</button>
     </div>
+  </div>
+</div>
 
-    <script src="/app.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
