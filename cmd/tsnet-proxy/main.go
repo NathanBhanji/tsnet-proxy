@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/NathanBhanji/tsnet-proxy/internal/activity"
 	"github.com/NathanBhanji/tsnet-proxy/internal/config"
 	"github.com/NathanBhanji/tsnet-proxy/internal/health"
 	"github.com/NathanBhanji/tsnet-proxy/internal/manager"
@@ -37,6 +38,11 @@ func main() {
 	// Create manager
 	mgr := manager.NewManager(cfg.AuthKey, cfg.StateDir, cfg.APIKey, cfg.Tailnet)
 
+	// Observe every proxied request: Prometheus metrics + the UI activity feed
+	actLog := activity.NewLog(200)
+	mgr.AddRequestObserver(metrics.RecordRequest)
+	mgr.AddRequestObserver(actLog.Record)
+
 	// Add all configured services
 	for _, svcCfg := range cfg.Services {
 		if err := mgr.AddService(svcCfg); err != nil {
@@ -53,7 +59,7 @@ func main() {
 	healthChecker.Start(ctx)
 
 	// Start management UI
-	uiServer := ui.NewUIServer(cfg, *configPath, mgr, healthChecker, cfg.AuthKey, cfg.StateDir)
+	uiServer := ui.NewUIServer(cfg, *configPath, mgr, healthChecker, actLog, cfg.AuthKey, cfg.StateDir)
 	if err := uiServer.Start(); err != nil {
 		log.Fatalf("Failed to start management UI: %v", err)
 	}

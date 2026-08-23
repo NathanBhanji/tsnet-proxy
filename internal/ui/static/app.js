@@ -4,11 +4,12 @@
  *   POST   /api/services          add service
  *   DELETE /api/services/{name}   remove service
  *   GET    /api/health            map[name]bool
- * Optional endpoints — the UI degrades gracefully if they 404:
- *   GET/PUT /api/config           raw configs/services.yaml
- *   GET    /api/settings          global config (authKey masked server-side)
- *   GET    /api/devices           tailnet device list
- *   GET    /api/metrics           Prometheus text exposition (proxied from :9090)
+ *   GET/PUT /api/config           raw configs/services.yaml (PUT applies + hot-reloads)
+ *   GET    /api/settings          global config (secrets masked) + tailnet MagicDNS suffix
+ *   GET    /api/devices           tsnet devices owned by this proxy (ip, online)
+ *   GET    /api/activity          recent proxied requests, newest first
+ *   GET    /api/metrics           Prometheus text exposition
+ * Every endpoint beyond the first four is optional — the UI degrades gracefully if it 404s.
  */
 
 const POLL_MS = 5000;
@@ -24,6 +25,7 @@ const state = {
   counters: {},             // name -> last cumulative request count
   rng: {},                  // name -> demo LCG state
   activity: [],
+  activityLive: false,      // /api/activity responded
   selected: null,
   demo: false,
 };
@@ -74,6 +76,8 @@ async function load() {
     api('/api/devices').then(d => { state.devices = d; }).catch(() => { state.devices = null; }),
     api('/api/settings').then(s => { state.settings = s; }).catch(() => { state.settings = null; }),
     api('/api/metrics').then(t => { ingestMetrics(t); }).catch(() => { state.metrics = state.demo ? DEMO.metrics : null; }),
+    api('/api/activity?limit=40').then(a => { state.activity = Array.isArray(a) ? a : []; state.activityLive = true; })
+      .catch(() => { state.activity = []; state.activityLive = false; }),
   ]);
 
   // sparkline history: request rate when metrics exist, otherwise health over time
@@ -319,30 +323,43 @@ function renderGrid() {
 function renderActivity() {
   const log = $('#activity-log');
   log.textContent = '';
-  if (!state.activity.length) {
+  const note = el('div');
+  note.style.cssText = 'color:var(--faint);font-size:11px;line-height:1.6';
+
+  if (!state.activityLive) {
     $('#activity-state').textContent = state.demo ? 'demo' : 'no stream';
     $('#activity-state').style.color = 'var(--faint)';
-    const note = el('div');
-    note.style.cssText = 'color:var(--faint);font-size:11px;line-height:1.6';
     note.textContent = state.demo
       ? 'Sample entries — connect the UI to the proxy to see live requests.'
-      : 'Request logging is not enabled. Add an /api/activity handler to stream proxied requests here.';
+      : '/api/activity is unavailable on this build of the proxy.';
     log.appendChild(note);
     if (state.demo) DEMO.activity.forEach(a => log.appendChild(activityRow(a)));
     return;
   }
+
   $('#activity-state').textContent = 'live';
   $('#activity-state').style.color = 'var(--green)';
+  if (!state.activity.length) {
+    note.textContent = 'No requests proxied yet — the last 200 will appear here as they arrive.';
+    log.appendChild(note);
+    return;
+  }
   state.activity.slice(0, 20).forEach(a => log.appendChild(activityRow(a)));
 }
 
+const fmtTime = ts => {
+  const d = new Date(ts);
+  return isNaN(d) ? '—' : d.toTimeString().slice(0, 8);
+};
+
 function activityRow(a) {
   const row = el('div', 'log-row');
-  row.appendChild(el('span', 't', a.time));
+  row.appendChild(el('span', 't', a.time || fmtTime(a.ts)));
   const mid = el('span', 'truncate');
   mid.appendChild(el('span', 's', a.service));
   mid.appendChild(document.createTextNode(' '));
-  mid.appendChild(el('span', 'p', a.path));
+  mid.appendChild(el('span', 'p', a.method ? `${a.method} ${a.path}` : a.path));
+  if (a.durationMs !== undefined) mid.title = `${a.durationMs.toFixed(1)} ms`;
   row.appendChild(mid);
   row.appendChild(el('span', codeClass(a.status), String(a.status)));
   return row;
@@ -436,7 +453,8 @@ function renderSettings() {
     ]],
     ['Management UI', 'This interface. Runs as its own tailnet device.', [
       ['hostname', (s.managementUI && s.managementUI.hostname) || 'tsnet-proxy-docker'],
-      ['port', String((s.managementUI && s.managementUI.port) || 8080)],
+      ['url', (s.managementUI && s.managementUI.url) || '—'],
+      ['backend state', s.backendState || '—'],
     ]],
     ['Metrics', 'Prometheus scrape endpoint.', [
       ['enabled', String(s.metrics ? !!s.metrics.enabled : true)],
@@ -599,13 +617,48 @@ $('#submit-add').onclick = submitAdd;
 $('#f-hc').onchange = e => { $('#hc-fields').hidden = !e.target.checked; };
 $('#yaml').oninput = () => { $('#dirty-flag').hidden = false; syncGutter(); };
 $('#apply-config').onclick = async () => {
+  const btn = $('#apply-config');
+  btn.disabled = true;
   try {
-    await api('/api/config', { method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: $('#yaml').value });
+    const res = await api('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/yaml' }, body: $('#yaml').value });
     $('#dirty-flag').hidden = true;
-    toast('Config applied — reloading changed services');
+    showApplyResult(res);
+    toast(applySummary(res));
     load();
-  } catch (e) { toast('Apply failed: ' + e.message, true); }
+  } catch (e) {
+    // A partial apply returns 500 with the same JSON body; surface its details.
+    let res = null;
+    try { res = JSON.parse(e.message); } catch (_) { /* plain error text */ }
+    if (res && Array.isArray(res.errors)) {
+      showApplyResult(res);
+      toast('Config saved but some services failed — see validation', true);
+    } else {
+      toast('Apply failed: ' + e.message, true);
+    }
+  } finally { btn.disabled = false; }
 };
+
+function applySummary(r) {
+  const parts = [];
+  if (r.added && r.added.length) parts.push(`+${r.added.length} added`);
+  if (r.removed && r.removed.length) parts.push(`−${r.removed.length} removed`);
+  if (r.updated && r.updated.length) parts.push(`~${r.updated.length} restarted`);
+  if (!parts.length) parts.push('no service changes');
+  let msg = 'Config applied · ' + parts.join(', ');
+  if (r.restartRequired && r.restartRequired.length) msg += ' · restart required for ' + r.restartRequired.join(', ');
+  return msg;
+}
+
+function showApplyResult(r) {
+  const rows = [];
+  const list = (label, xs) => xs && xs.length && rows.push(['✓', `${label}: ${xs.join(', ')}`, 'var(--green)']);
+  list('added', r.added); list('removed', r.removed); list('restarted', r.updated);
+  if (r.unchanged) rows.push(['·', `${r.unchanged} unchanged`, 'var(--dim)']);
+  (r.restartRequired || []).forEach(f => rows.push(['!', `${f} changed — restart the proxy to apply`, 'var(--amber)']));
+  (r.errors || []).forEach(err => rows.push(['✗', err, 'var(--red)']));
+  if (!rows.length) rows.push(['✓', 'Config applied', 'var(--green)']);
+  validate(rows);
+}
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') $('#add-scrim').hidden = true;
 });

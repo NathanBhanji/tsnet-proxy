@@ -1,21 +1,31 @@
 package manager
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/NathanBhanji/tsnet-proxy/internal/config"
 	"tailscale.com/client/tailscale"
 	"tailscale.com/tsnet"
 )
+
+// RequestObserver is notified after every request a service handles,
+// including requests rejected by the proxy itself (503 unhealthy, 404 path
+// mismatch). path is the request path as received, before any prefix
+// stripping. Observers must be fast and must not block.
+type RequestObserver func(service, method, path string, status int, duration time.Duration)
 
 // Manager manages multiple tsnet services
 type Manager struct {
@@ -25,6 +35,9 @@ type Manager struct {
 	apiClient *tailscale.Client
 	tailnet   string
 	mu        sync.RWMutex
+
+	obsMu     sync.RWMutex
+	observers []RequestObserver
 }
 
 // NewManager creates a new Manager instance
@@ -43,6 +56,26 @@ func NewManager(authKey, stateDir, apiKey, tailnet string) *Manager {
 	}
 }
 
+// AddRequestObserver registers a callback invoked for every proxied request
+// across all services (metrics, activity log, ...).
+func (m *Manager) AddRequestObserver(fn RequestObserver) {
+	if fn == nil {
+		return
+	}
+	m.obsMu.Lock()
+	m.observers = append(m.observers, fn)
+	m.obsMu.Unlock()
+}
+
+func (m *Manager) notify(service, method, path string, status int, d time.Duration) {
+	m.obsMu.RLock()
+	observers := m.observers
+	m.obsMu.RUnlock()
+	for _, fn := range observers {
+		fn(service, method, path, status, d)
+	}
+}
+
 // AddService adds and starts a new service
 func (m *Manager) AddService(cfg config.ServiceConfig) error {
 	m.mu.Lock()
@@ -53,7 +86,36 @@ func (m *Manager) AddService(cfg config.ServiceConfig) error {
 	}
 
 	log.Printf("Adding service: %s -> %s", cfg.Name, cfg.Backend)
+	return m.startServiceLocked(cfg)
+}
 
+// ReplaceService restarts an existing service with a new configuration. Unlike
+// RemoveService+AddService it keeps the service's Tailscale device: the tsnet
+// server is closed and restarted from the same state directory, so the node
+// identity (and therefore its IP and DNS name) is preserved. The service is
+// briefly unavailable while it reconnects.
+func (m *Manager) ReplaceService(cfg config.ServiceConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	old, exists := m.services[cfg.Name]
+	if !exists {
+		return fmt.Errorf("service %s not found", cfg.Name)
+	}
+
+	log.Printf("Restarting service %s with updated configuration", cfg.Name)
+	if old.tsnetServer != nil {
+		if err := old.tsnetServer.Close(); err != nil {
+			log.Printf("Error closing tsnet server for %s: %v", cfg.Name, err)
+		}
+	}
+	delete(m.services, cfg.Name)
+
+	return m.startServiceLocked(cfg)
+}
+
+// startServiceLocked creates and starts a service. m.mu must be held.
+func (m *Manager) startServiceLocked(cfg config.ServiceConfig) error {
 	// Create service instance
 	svc := NewService(cfg)
 
@@ -184,7 +246,7 @@ func (m *Manager) GetAllServices() map[string]*Service {
 
 // createHandler creates an HTTP handler with path routing and health checking
 func (m *Manager) createHandler(svc *Service, proxy *httputil.ReverseProxy) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if service is healthy
 		if !svc.IsHealthy() {
 			log.Printf("Service %s is unhealthy, returning 503", svc.Config.Name)
@@ -222,6 +284,60 @@ func (m *Manager) createHandler(svc *Service, proxy *httputil.ReverseProxy) http
 		log.Printf("Service %s: proxying %s %s to %s", svc.Config.Name, r.Method, r.URL.Path, svc.Config.Backend)
 		proxy.ServeHTTP(w, r)
 	})
+
+	// Observe every request (metrics, activity feed) with its final status.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		path := r.URL.Path
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		inner.ServeHTTP(rec, r)
+		m.notify(svc.Config.Name, r.Method, path, rec.status, time.Since(start))
+	})
+}
+
+// statusRecorder captures the response status code. It implements Unwrap so
+// http.ResponseController (used by httputil.ReverseProxy for flushing and
+// WebSocket hijacking) can reach the underlying writer, and Flush/Hijack
+// directly for handlers that type-assert instead.
+type statusRecorder struct {
+	http.ResponseWriter
+	status  int
+	written bool
+}
+
+func (rw *statusRecorder) WriteHeader(code int) {
+	if !rw.written {
+		rw.status = code
+		rw.written = true
+	}
+	rw.ResponseWriter.WriteHeader(code)
+}
+
+func (rw *statusRecorder) Write(b []byte) (int, error) {
+	if !rw.written {
+		rw.status = http.StatusOK
+		rw.written = true
+	}
+	return rw.ResponseWriter.Write(b)
+}
+
+func (rw *statusRecorder) Unwrap() http.ResponseWriter { return rw.ResponseWriter }
+
+func (rw *statusRecorder) Flush() {
+	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (rw *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := rw.ResponseWriter.(http.Hijacker); ok {
+		if !rw.written {
+			rw.status = http.StatusSwitchingProtocols
+			rw.written = true
+		}
+		return h.Hijack()
+	}
+	return nil, nil, errors.New("response writer does not support hijacking")
 }
 
 // Shutdown gracefully shuts down all services
