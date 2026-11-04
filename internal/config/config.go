@@ -52,16 +52,36 @@ func SaveService(path, name string, service *ServiceConfig) error {
 		return fmt.Errorf("config must be a YAML mapping")
 	}
 	root := doc.Content[0]
-	var services *yaml.Node
+	var services, servicesKey *yaml.Node
 	for i := 0; i < len(root.Content); i += 2 {
 		if root.Content[i].Value == "services" {
 			services = root.Content[i+1]
+			servicesKey = root.Content[i]
 			break
 		}
 	}
 	if services == nil {
 		services = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
 		root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "services"}, services)
+	}
+	// Parse accepts YAML null (including a bare services:) as an empty list.
+	// Normalize in place so comments and the rest of the raw document survive.
+	if services.Kind == yaml.ScalarNode && services.Tag == "!!null" {
+		// Collection line comments are not reliably emitted by yaml.v3,
+		// especially for empty sequences. Keep them above the mapping key.
+		for _, node := range []*yaml.Node{servicesKey, services} {
+			if node.LineComment != "" {
+				if servicesKey.HeadComment != "" {
+					servicesKey.HeadComment += "\n"
+				}
+				servicesKey.HeadComment += node.LineComment
+				node.LineComment = ""
+			}
+		}
+		services.Kind = yaml.SequenceNode
+		services.Tag = "!!seq"
+		services.Value = ""
+		services.Style = 0
 	}
 	if services.Kind != yaml.SequenceNode {
 		return fmt.Errorf("services must be a YAML sequence")
