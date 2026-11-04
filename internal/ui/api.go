@@ -209,7 +209,7 @@ func (h *APIHandler) AddService(w http.ResponseWriter, r *http.Request) {
 
 	// Add to config and save
 	h.config.Services = append(h.config.Services, svcCfg)
-	if err := config.Save(h.config, h.configPath); err != nil {
+	if err := config.SaveService(h.configPath, svcCfg.Name, &svcCfg); err != nil {
 		log.Printf("Warning: Failed to save config after adding service: %v", err)
 	}
 
@@ -253,7 +253,7 @@ func (h *APIHandler) DeleteService(w http.ResponseWriter, r *http.Request) {
 	}
 	h.config.Services = newServices
 
-	if err := config.Save(h.config, h.configPath); err != nil {
+	if err := config.SaveService(h.configPath, name, nil); err != nil {
 		log.Printf("Warning: Failed to save config after removing service: %v", err)
 	}
 
@@ -368,7 +368,7 @@ func (h *APIHandler) putConfig(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if err := writeFileAtomic(h.configPath, body, 0644); err != nil {
+	if err := writeFileAtomic(h.configPath, body, 0600); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to write config file: %v", err), http.StatusInternalServerError)
 		return
 	}

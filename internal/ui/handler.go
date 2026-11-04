@@ -66,7 +66,6 @@ func (s *UIServer) Start() error {
 	}
 
 	log.Printf("Starting management UI server...")
-	log.Printf("Auth key (first 20 chars): %s...", s.tsnetServer.AuthKey[:20])
 	log.Printf("Hostname: %s", s.tsnetServer.Hostname)
 	log.Printf("State dir: %s", s.tsnetServer.Dir)
 
