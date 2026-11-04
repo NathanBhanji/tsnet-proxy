@@ -91,6 +91,19 @@ func (s *UIServer) Start() error {
 		return err
 	}
 
+	// Start HTTP server in goroutine
+	go func() {
+		log.Printf("Management UI listening on http://%s.<tailnet>.ts.net", s.config.ManagementUI.Hostname)
+		if err := http.Serve(ln, s.handler()); err != nil {
+			log.Printf("Management UI server error: %v", err)
+		}
+	}()
+
+	return nil
+}
+
+// handler builds the management routes without starting a Tailscale node.
+func (s *UIServer) handler() http.Handler {
 	// Create HTTP mux
 	mux := http.NewServeMux()
 
@@ -127,19 +140,13 @@ func (s *UIServer) Start() error {
 	// Serve static files
 	staticFS, err := fs.Sub(staticFiles, "static")
 	if err != nil {
-		return err
+		panic(err) // embedded static directory is fixed at build time
 	}
 	mux.Handle("/", http.FileServer(http.FS(staticFS)))
 
-	// Start HTTP server in goroutine
-	go func() {
-		log.Printf("Management UI listening on http://%s.<tailnet>.ts.net", s.config.ManagementUI.Hostname)
-		if err := http.Serve(ln, mux); err != nil {
-			log.Printf("Management UI server error: %v", err)
-		}
-	}()
-
-	return nil
+	// Tailnet ACLs authorize the browser's device, not the website it visits.
+	// Reject cross-origin mutations before any API handler can change state.
+	return http.NewCrossOriginProtection().Handler(mux)
 }
 
 // Stop stops the UI server
