@@ -36,17 +36,67 @@ func Parse(data []byte) (*Config, error) {
 	return &cfg, nil
 }
 
-// Save writes the configuration to a file
-func Save(cfg *Config, path string) error {
-	data, err := yaml.Marshal(cfg)
+// SaveService changes only one service in the unexpanded file. Serializing the
+// running Config would copy environment-provided credentials into the file.
+// A nil service removes the named service.
+func SaveService(path, name string, service *ServiceConfig) error {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
+		return fmt.Errorf("failed to read config: %w", err)
 	}
-
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return err
 	}
-
+	if len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
+		return fmt.Errorf("config must be a YAML mapping")
+	}
+	root := doc.Content[0]
+	var services *yaml.Node
+	for i := 0; i < len(root.Content); i += 2 {
+		if root.Content[i].Value == "services" {
+			services = root.Content[i+1]
+			break
+		}
+	}
+	if services == nil {
+		services = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "services"}, services)
+	}
+	if services.Kind != yaml.SequenceNode {
+		return fmt.Errorf("services must be a YAML sequence")
+	}
+	kept := make([]*yaml.Node, 0, len(services.Content)+1)
+	for _, node := range services.Content {
+		var entry struct {
+			Name string `yaml:"name"`
+		}
+		if err := node.Decode(&entry); err != nil {
+			return err
+		}
+		if os.ExpandEnv(entry.Name) != name {
+			kept = append(kept, node)
+		}
+	}
+	if service != nil {
+		var node yaml.Node
+		if err := node.Encode(service); err != nil {
+			return err
+		}
+		kept = append(kept, &node)
+	}
+	services.Content = kept
+	data, err = yaml.Marshal(&doc)
+	if err != nil {
+		return err
+	}
+	// Restrict existing files too; WriteFile's mode only applies to new files.
+	if err := os.Chmod(path, 0600); err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return err
+	}
 	return nil
 }
 
