@@ -1,5 +1,5 @@
 # Build stage - use target platform for native compilation with CGO
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26.10-alpine AS builder
 
 WORKDIR /app
 
